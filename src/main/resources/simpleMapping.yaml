@@ -1,0 +1,7 @@
+dynamic: false
+properties:
+  Name:
+    type: keyword
+    fields:
+      onetwogram: { type: text, analyzer: onetwogram_analyzer}
+      basic: { type: text }

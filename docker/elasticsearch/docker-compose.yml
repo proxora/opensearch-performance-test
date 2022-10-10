@@ -1,0 +1,31 @@
+version: "3.0"
+
+services:
+
+  elasticsearch:
+    container_name: es-container
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTICSEARCH_VERSION_TAG}
+    environment:
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms4096m -Xmx4096m"
+      - "discovery.type=single-node"
+    ports:
+      - 9200:9200
+    networks:
+      - es-net
+
+  kibana:
+    container_name: kb-container
+    image: docker.elastic.co/kibana/kibana:${ELASTICSEARCH_VERSION_TAG}
+    environment:
+      - ELASTICSEARCH_HOSTS=http://es-container:9200
+    ports:
+      - 5601:5601
+    networks:
+      - es-net
+    depends_on:
+      - elasticsearch
+
+networks:
+  es-net:
+    driver: bridge

@@ -1,0 +1,24 @@
+apply plugin: 'java'
+apply plugin: 'application'
+
+apply from: 'dependencies.gradle'
+
+repositories {
+    mavenCentral()
+}
+
+application {
+    mainClass = searchAppMainClass()
+}
+
+
+String searchAppMainClass() {
+    var searchEngine = project.property("searchengine.provider")
+
+    if (searchEngine == "elasticsearch") return 'ElasticPerformance'
+    if (searchEngine == "opensearch") return 'OpensearchPerformance'
+
+    throw new IllegalStateException(
+            "Invalid value for property 'searchengine.provider' : $searchEngine; Should be: (elastic | opensearch)"
+    )
+}
