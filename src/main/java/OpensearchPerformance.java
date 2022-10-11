@@ -1,10 +1,5 @@
-import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
 import org.apache.http.HttpHost;
-import org.apache.http.auth.AuthScope;
-import org.apache.http.auth.UsernamePasswordCredentials;
-import org.apache.http.client.CredentialsProvider;
-import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.opensearch.action.admin.indices.refresh.RefreshRequest;
 import org.opensearch.action.bulk.BulkRequest;
 import org.opensearch.action.index.IndexRequest;
@@ -12,7 +7,6 @@ import org.opensearch.action.search.SearchRequest;
 import org.opensearch.action.search.SearchResponse;
 import org.opensearch.client.RequestOptions;
 import org.opensearch.client.RestClient;
-import org.opensearch.client.RestClientBuilder;
 import org.opensearch.client.RestHighLevelClient;
 import org.opensearch.client.indices.CreateIndexRequest;
 import org.opensearch.client.indices.GetIndexRequest;
@@ -22,6 +16,9 @@ import org.opensearch.index.query.QueryBuilders;
 import org.opensearch.search.builder.SearchSourceBuilder;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.Collectors;
@@ -36,8 +33,8 @@ public class OpensearchPerformance {
 
     public static void main(String[] args) throws Exception {
         System.out.println("OpenSearch - performance test ...");
-        firstNames = Resources.readLines(Resources.getResource("firstNames.txt"), Charsets.UTF_8);
-        lastNames = Resources.readLines(Resources.getResource("lastNames.txt"), Charsets.UTF_8);
+        firstNames = Resources.readLines(Resources.getResource("firstNames.txt"), StandardCharsets.UTF_8);
+        lastNames = Resources.readLines(Resources.getResource("lastNames.txt"), StandardCharsets.UTF_8);
         Random generationSeed = new Random(1);
         try (RestHighLevelClient client = createRestClient()) {
             if (!checkIfIndexExists(client, "simple")) {
@@ -45,9 +42,12 @@ public class OpensearchPerformance {
                 createIndex(client, "simple", "settings.yaml", "simpleMapping.yaml");
 
                 System.out.println("Adding documents (1.000.000)...");
+                printProgress(0, 40, false);
                 for (int i = 0; i < 1000; i++) {
                     addDocuments(client, "simple", Stream.generate(() -> createSimpleDocument(generationSeed)).limit(1000).collect(Collectors.toList()));
+                    printProgress((float) i / 1000, 40, true);
                 }
+                System.out.print("\n");
 
                 System.out.println("Refreshing index \"simple\"...");
                 refreshIndex(client, "simple");
@@ -55,14 +55,30 @@ public class OpensearchPerformance {
             Random testingSeed = new Random(2);
             SearchResult onetwogram = new SearchResult();
             SearchResult basic = new SearchResult();
+
             System.out.println("Executing search queries...");
+            printProgress(0, 40, false);
             for (int i = 0; i < 1000; i++) {
                 onetwogram.add(searchForQuery(client, "simple", simpleQuery("Name.onetwogram", testingSeed)));
                 basic.add(searchForQuery(client, "simple", simpleQuery("Name.basic", testingSeed)));
+                printProgress((float) i / 1000, 40, true);
             }
-            System.out.println(" >> onetwogram: " + onetwogram.log());
-            System.out.println(" >> basic:      " + basic.log());
+            System.out.print("\n");
+
+            System.out.println(">>> onetwogram:\n" + onetwogram.log());
+            System.out.println(">>> basic:\n" + basic.log());
         }
+    }
+
+    private static void printProgress(float progress, int length, boolean replace) {
+        if (replace) {
+            System.out.print("\r");
+        }
+        final int progressElements = Math.round(length * progress);
+        System.out.print("|"
+                + String.join("", Collections.nCopies(progressElements, "#"))
+                + String.join("", Collections.nCopies(length - progressElements, "-"))
+                + "|");
     }
 
     private static boolean checkIfIndexExists(RestHighLevelClient client, String indexName) throws IOException {
@@ -73,8 +89,8 @@ public class OpensearchPerformance {
     private static void createIndex(RestHighLevelClient client, String indexName, String settingsFile, String mappingName)
             throws IOException {
         CreateIndexRequest nestedCreateIndexRequest = new CreateIndexRequest(indexName);
-        nestedCreateIndexRequest.settings(Resources.toString(Resources.getResource(settingsFile), Charsets.UTF_8), XContentType.YAML);
-        nestedCreateIndexRequest.mapping(Resources.toString(Resources.getResource(mappingName), Charsets.UTF_8), XContentType.YAML);
+        nestedCreateIndexRequest.settings(Resources.toString(Resources.getResource(settingsFile), StandardCharsets.UTF_8), XContentType.YAML);
+        nestedCreateIndexRequest.mapping(Resources.toString(Resources.getResource(mappingName), StandardCharsets.UTF_8), XContentType.YAML);
         client.indices().create(nestedCreateIndexRequest, RequestOptions.DEFAULT);
     }
 
@@ -103,11 +119,10 @@ public class OpensearchPerformance {
         searchSourceBuilder.query(query);
         searchSourceBuilder.size(100);
         request.source(searchSourceBuilder);
-        SearchResult result = new SearchResult();
         SearchResponse response = client.search(request, RequestOptions.DEFAULT);
-        result.took = response.getTook().millis();
-        result.resultSize = response.getHits().getTotalHits().value;
-        return result;
+        return new SearchResult(
+                response.getTook().millis(),
+                response.getHits().getTotalHits().value);
     }
 
     private static QueryBuilder simpleQuery(String fieldName, Random seed) {
@@ -126,28 +141,42 @@ public class OpensearchPerformance {
     }
 
     private static RestHighLevelClient createRestClient() {
-        final CredentialsProvider credentialsProvider =
-                new BasicCredentialsProvider();
-        credentialsProvider.setCredentials(AuthScope.ANY,
-                new UsernamePasswordCredentials("user", "test-user-password"));
-        RestClientBuilder builder = RestClient.builder(
-                        new HttpHost("localhost", 9200))
-                .setHttpClientConfigCallback(httpClientBuilder -> httpClientBuilder
-                        .setDefaultCredentialsProvider(credentialsProvider));
-        return new RestHighLevelClient(builder);
+        return new RestHighLevelClient(RestClient
+                .builder(new HttpHost("localhost", 9200)));
     }
 
     private static class SearchResult {
-        long took = 0;
-        long resultSize = 0;
+        List<Long> took = new ArrayList<>();
+        List<Long> resultSize = new ArrayList<>();
+
+        SearchResult() {
+        }
+
+        SearchResult(long took, long resultSize) {
+            this.took.add(took);
+            this.resultSize.add(resultSize);
+        }
 
         void add(SearchResult result) {
-            took += result.took;
-            resultSize += result.resultSize;
+            this.took.addAll(result.took);
+            this.resultSize.addAll(result.resultSize);
         }
 
         String log() {
-            return "Took: " + took + " ms, # Results: " + resultSize;
+            return "Took:\n"
+                    + "  Total:          " + took.stream().mapToLong(l -> l).sum() + " ms\n"
+                    + "  Max:            " + took.stream().mapToLong(l -> l).max().orElse(-1L) + " ms\n"
+                    + "  Min:            " + took.stream().mapToLong(l -> l).min().orElse(-1L) + " ms\n"
+                    + "  Average:        " + took.stream().mapToLong(l -> l).average().orElse(-1L) + " ms\n"
+                    + "  Median:         " + took.stream().sorted().skip((long) (took.size() * 0.5)).findFirst().orElse(-1L) + " ms\n"
+                    + "  90% Percentile: " + took.stream().sorted().skip((long) (took.size() * 0.9)).findFirst().orElse(-1L) + " ms\n"
+                    + "  95% Percentile: " + took.stream().sorted().skip((long) (took.size() * 0.95)).findFirst().orElse(-1L) + " ms\n"
+                    + "  99% Percentile: " + took.stream().sorted().skip((long) (took.size() * 0.99)).findFirst().orElse(-1L) + " ms\n"
+                    + "Results:\n"
+                    + "  Total:          " + resultSize.stream().mapToLong(l -> l).sum() + "\n"
+                    + "  Max:            " + resultSize.stream().mapToLong(l -> l).max().orElse(-1L) + "\n"
+                    + "  Min:            " + resultSize.stream().mapToLong(l -> l).min().orElse(-1L)
+                    ;
         }
     }
 

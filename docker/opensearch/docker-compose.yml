@@ -10,7 +10,7 @@ services:
       - node.name=opensearch-node1
       - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
       - plugins.security.disabled=true
-      - "OPENSEARCH_JAVA_OPTS=-Xms4096m -Xmx4096m"
+      - "OPENSEARCH_JAVA_OPTS=-Xms4096m -Xmx4096m -XX:+UseG1GC -XX:G1ReservePercent=25 -XX:InitiatingHeapOccupancyPercent=30"
       - "DISABLE_INSTALL_DEMO_CONFIG=true"
       - "discovery.type=single-node"
     ports:
